@@ -1,38 +1,55 @@
 import { Command } from "commander";
 import chalk from "chalk";
-import { BrowserController } from "../browser/controller.js";
-import { createServer } from "../server/index.js";
 import { PlatformDetector } from "../platform/detector.js";
 
-const controller = new BrowserController();
 const detector = new PlatformDetector();
 
 /** Agent HTTP 服务基础 URL */
 let agentBaseUrl = "http://127.0.0.1:17900";
+let jsonMode = false;
 
-async function agentFetch(path: string, options?: RequestInit): Promise<any> {
+async function api(path: string, options?: RequestInit): Promise<any> {
   const resp = await fetch(`${agentBaseUrl}${path}`, options);
   return resp.json();
 }
 
-function agentPost(path: string, body: any): Promise<any> {
-  return agentFetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+function post(path: string, body: any): Promise<any> {
+  return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
-function output(data: any, jsonMode: boolean) {
+function out(data: any) {
   if (jsonMode) {
     console.log(JSON.stringify(data, null, 2));
-  } else if (typeof data === "string") {
-    console.log(data);
-  } else {
-    for (const [k, v] of Object.entries(data)) {
-      console.log(chalk.cyan(k + ":") + " " + String(v));
+  } else if (Array.isArray(data)) {
+    for (const item of data) {
+      if (typeof item === "object") {
+        const name = item.name || item.text || item.title || item.url || "";
+        const id = item.id || item.index || item.courseId || item.chapterId || "";
+        console.log(`  ${name}${id ? ` [${id}]` : ""}`);
+      } else {
+        console.log(`  ${item}`);
+      }
     }
+  } else if (typeof data === "object" && data !== null) {
+    for (const [k, v] of Object.entries(data)) {
+      console.log(`${chalk.cyan(k)}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
+    }
+  } else {
+    console.log(String(data));
   }
+}
+
+function log(msg: string) {
+  console.error(chalk.gray(msg));
+}
+
+async function ensureConnected(): Promise<boolean> {
+  try {
+    const h = await api("/agent/health");
+    if (h.status === "ok") return true;
+  } catch {}
+  console.error(chalk.red("未连接。运行 ocs connect 先。"));
+  return false;
 }
 
 export function createCLI(): Command {
@@ -40,273 +57,344 @@ export function createCLI(): Command {
 
   program
     .name("ocs")
-    .description("OCS-CLI — AI Agent 的网课自动化工具箱")
+    .description("网课自动化工具箱 — AI Agent 的浏览器操作接口")
     .version("0.1.0")
     .option("--json", "JSON 输出", false)
     .option("--agent <url>", "Agent 服务地址", "http://127.0.0.1:17900");
 
-  // ── 连接 ──
-  program
-    .command("connect")
-    .description("连接到 ocs-desktop 的 Agent 服务")
-    .action(async () => {
-      agentBaseUrl = program.opts().agent;
-      try {
-        // 自动发现
-        const discover = await fetch("http://127.0.0.1:15319/agent").then(r => r.json()).catch(() => null) as any;
-        if (discover?.agentUrl) agentBaseUrl = discover.agentUrl;
-
-        const health = await agentFetch("/agent/health");
-        if (health.status === "ok") {
-          console.log(chalk.green(`已连接 ${agentBaseUrl}`));
-          console.log(chalk.gray(`浏览器: ${health.hasBrowser ? "是" : "否"}, 页面: ${health.pages}`));
-        } else {
-          console.log(chalk.red("Agent 服务异常"));
-        }
-      } catch {
-        console.log(chalk.red(`无法连接 ${agentBaseUrl}`));
-        console.log(chalk.gray("请确认 ocs-desktop 已启动且浏览器已打开"));
-      }
-    });
-
-  // ── 医生 ──
-  program.command("doctor").description("检查环境").action(async () => {
-    console.log(chalk.cyan("OCS-CLI 环境检查\n"));
-    console.log(`平台: ${process.platform}`);
-    console.log(`Node: ${process.version}`);
-    // 检查 Agent 服务
-    try {
-      const h = await agentFetch("/agent/health");
-      console.log(chalk.green(`Agent 服务: 在线 (${agentBaseUrl})`));
-      console.log(`浏览器: ${h.hasBrowser ? "运行中" : "未启动"}, 页面: ${h.pages}`);
-    } catch {
-      console.log(chalk.yellow(`Agent 服务: 离线`));
-    }
-    console.log(`\n支持平台:`);
-    for (const p of detector.listPlatforms()) {
-      console.log(chalk.gray(`  ${p.name} (${p.id})`));
-    }
+  program.hook("preAction", (thisCmd) => {
+    jsonMode = thisCmd.opts().json || false;
+    agentBaseUrl = thisCmd.opts().agent || "http://127.0.0.1:17900";
   });
 
   // ══════════════════════════════════════════
-  // 页面操作
+  // 发现 & 诊断
+  // ══════════════════════════════════════════
+
+  program
+    .command("doctor")
+    .description("检查环境和服务状态")
+    .action(async () => {
+      const result: any = { platform: process.platform, node: process.version, agent: { status: "离线" }, platforms: [] };
+      try {
+        const h = await api("/agent/health");
+        result.agent = { status: "在线", url: agentBaseUrl, browser: h.hasBrowser, pages: h.pages };
+      } catch {}
+      result.platforms = detector.listPlatforms().map((p) => ({ id: p.id, name: p.name, domains: p.domains }));
+      out(result);
+    });
+
+  program
+    .command("connect")
+    .description("连接到 ocs-desktop Agent 服务")
+    .action(async () => {
+      try {
+        const discover = await fetch("http://127.0.0.1:15319/agent").then((r) => r.json()).catch(() => null) as any;
+        if (discover?.agentUrl) agentBaseUrl = discover.agentUrl;
+        const health = await api("/agent/health");
+        if (health.status === "ok") {
+          out({ connected: true, url: agentBaseUrl, browser: health.hasBrowser, pages: health.pages });
+        } else {
+          out({ connected: false, error: "服务异常" });
+        }
+      } catch {
+        out({ connected: false, url: agentBaseUrl, error: "ocs-desktop 未运行" });
+      }
+    });
+
+  program
+    .command("detect <url>")
+    .description("检测 URL 对应的课程平台")
+    .action((url: string) => {
+      const result = detector.detect(url);
+      out(result ?? { detected: false });
+    });
+
+  // ══════════════════════════════════════════
+  // 页面 (page)
   // ══════════════════════════════════════════
 
   const page = program.command("page").description("页面操作");
 
-  page.command("list").description("列出页面").action(async () => {
-    const pages = await agentFetch("/agent/pages");
-    const json = program.opts().json;
-    if (json) { console.log(JSON.stringify(pages, null, 2)); return; }
-    for (const p of pages) console.log(`[${p.index}] ${p.url} — ${p.title}`);
+  page
+    .command("list")
+    .description("列出所有页面")
+    .action(async () => {
+      if (!(await ensureConnected())) return;
+      out(await api("/agent/pages"));
+    });
+
+  page
+    .command("open <url>")
+    .description("导航到 URL")
+    .action(async (url: string) => {
+      if (!(await ensureConnected())) return;
+      out(await post("/agent/navigate", { url }));
+    });
+
+  page
+    .command("new [url]")
+    .description("新建页面")
+    .action(async (url?: string) => {
+      if (!(await ensureConnected())) return;
+      out(await post("/agent/newPage", { url }));
+    });
+
+  page
+    .command("screenshot [file]")
+    .description("截图 (base64 或保存到文件)")
+    .option("--full", "完整页面")
+    .action(async (file?: string, opts?: any) => {
+      if (!(await ensureConnected())) return;
+      const data = await api(`/agent/screenshot?fullPage=${opts?.full || false}`);
+      if (file) {
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(file, Buffer.from(data.screenshot, "base64"));
+        log(`已保存: ${file}`);
+        out({ saved: file, length: data.screenshot.length });
+      } else {
+        out(data);
+      }
+    });
+
+  page
+    .command("snapshot")
+    .description("DOM 快照")
+    .action(async () => {
+      if (!(await ensureConnected())) return;
+      out(await api("/agent/snapshot"));
+    });
+
+  page
+    .command("eval <expression>")
+    .description("执行 JavaScript")
+    .action(async (expr: string) => {
+      if (!(await ensureConnected())) return;
+      const r = await post("/agent/eval", { expression: expr });
+      out(r.result ?? r);
+    });
+
+  page
+    .command("content")
+    .description("获取页面 HTML")
+    .action(async () => {
+      if (!(await ensureConnected())) return;
+      const r = await api("/agent/content");
+      console.log(r.content);
+    });
+
+  page
+    .command("url")
+    .description("当前 URL")
+    .action(async () => {
+      if (!(await ensureConnected())) return;
+      out(await api("/agent/url"));
+    });
+
+  // ══════════════════════════════════════════
+  // 元素操作 (act)
+  // ══════════════════════════════════════════
+
+  const act = program.command("act").description("元素操作");
+
+  act.command("click <selector>").description("点击").action(async (sel: string) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/click", { selector: sel }));
   });
 
-  page.command("navigate <url>").description("导航到 URL").action(async (url: string) => {
-    const r = await agentPost("/agent/navigate", { url });
-    output(r, program.opts().json);
+  act.command("fill <selector> <value>").description("填写").action(async (sel: string, val: string) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/fill", { selector: sel, value: val }));
   });
 
-  page.command("new [url]").description("新建页面").action(async (url?: string) => {
-    const r = await agentPost("/agent/newPage", { url });
-    output(r, program.opts().json);
+  act.command("press <key>").description("按键").action(async (key: string) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/press", { key }));
   });
 
-  page.command("screenshot [file]").description("截图").option("--full-page", "完整页面").action(async (file?: string, opts?: any) => {
-    const data = await agentFetch(`/agent/screenshot?fullPage=${opts?.fullPage || false}`);
-    if (file) {
-      const { writeFileSync } = await import("node:fs");
-      writeFileSync(file, Buffer.from(data.screenshot, "base64"));
-      console.log(chalk.green(`已保存: ${file}`));
-    } else {
-      console.log(data.screenshot);
-    }
+  act.command("hover <selector>").description("悬停").action(async (sel: string) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/hover", { selector: sel }));
   });
 
-  page.command("snapshot").description("DOM 快照").action(async () => {
-    const data = await agentFetch("/agent/snapshot");
-    console.log(data.snapshot);
-  });
-
-  page.command("eval <expr>").description("执行 JavaScript").action(async (expr: string) => {
-    const r = await agentPost("/agent/eval", { expression: expr });
-    output(r.result ?? r, program.opts().json);
-  });
-
-  page.command("content").description("获取 HTML").action(async () => {
-    const r = await agentFetch("/agent/content");
-    console.log(r.content);
+  act.command("wait <selector>").description("等待元素出现").option("-t, --timeout <ms>", "超时", "30000").action(async (sel: string, opts: any) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/waitFor", { selector: sel, timeout: Number(opts.timeout) }));
   });
 
   // ══════════════════════════════════════════
-  // 元素操作
+  // iframe
   // ══════════════════════════════════════════
 
-  program.command("click <selector>").description("点击元素").action(async (sel: string) => {
-    output(await agentPost("/agent/click", { selector: sel }), program.opts().json);
-  });
-
-  program.command("fill <selector> <value>").description("填写输入框").action(async (sel: string, val: string) => {
-    output(await agentPost("/agent/fill", { selector: sel, value: val }), program.opts().json);
-  });
-
-  program.command("press <key>").description("按键").action(async (key: string) => {
-    output(await agentPost("/agent/press", { key }), program.opts().json);
-  });
-
-  program.command("wait <selector>").description("等待元素").option("-t, --timeout <ms>", "超时", "30000").action(async (sel: string, opts: any) => {
-    output(await agentPost("/agent/waitFor", { selector: sel, timeout: Number(opts.timeout) }), program.opts().json);
-  });
-
-  // ══════════════════════════════════════════
-  // iframe 操作
-  // ══════════════════════════════════════════
-
-  const iframe = program.command("iframe").description("iframe 操作");
+  const iframe = program.command("iframe").description("iframe 操作（课程内容在 iframe 内）");
 
   iframe.command("list").description("列出 iframe").action(async () => {
-    const r = await agentFetch("/agent/iframes");
-    const json = program.opts().json;
-    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
-    for (const f of r) console.log(`[${f.index}] ${f.src?.slice(0, 80)} ${f.accessible ? chalk.green("可访问") : chalk.red("跨域")}`);
+    if (!(await ensureConnected())) return;
+    out(await api("/agent/iframes"));
   });
 
-  iframe.command("eval <index> <expr>").description("iframe 内执行 JS").action(async (idx: string, expr: string) => {
-    const r = await agentPost("/agent/iframe-eval", { iframeIndex: Number(idx), expression: expr });
-    output(r.result ?? r, program.opts().json);
+  iframe.command("eval <index> <expression>").description("iframe 内执行 JS").action(async (idx: string, expr: string) => {
+    if (!(await ensureConnected())) return;
+    const r = await post("/agent/iframe-eval", { iframeIndex: Number(idx), expression: expr });
+    out(r.result ?? r);
   });
 
-  iframe.command("media <index>").description("iframe 内媒体").action(async (idx: string) => {
-    output(await agentPost("/agent/iframe-media", { iframeIndex: Number(idx) }), program.opts().json);
+  iframe.command("media <index>").description("iframe 内媒体检测").action(async (idx: string) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/iframe-media", { iframeIndex: Number(idx) }));
   });
 
-  iframe.command("questions <index>").description("iframe 内题目").action(async (idx: string) => {
-    const r = await agentPost("/agent/iframe-questions", { iframeIndex: Number(idx) });
-    const json = program.opts().json;
-    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
-    for (const q of r) {
-      console.log(`[${q.type}] ${q.text?.slice(0, 60)}`);
-      for (const o of q.options?.slice(0, 4) ?? []) console.log(chalk.gray(`  - ${o.text}`));
-    }
+  iframe.command("questions <index>").description("提取题目").action(async (idx: string) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/iframe-questions", { iframeIndex: Number(idx) }));
   });
 
-  iframe.command("answer <index> <question> <answer>").description("选择答案").option("-m, --mode <mode>", "匹配模式", "similar").action(async (idx: string, q: string, a: string, opts: any) => {
-    output(await agentPost("/agent/iframe-answer", { iframeIndex: Number(idx), questionText: q, answerText: a, matchMode: opts.mode }), program.opts().json);
+  iframe.command("answer <index> <question> <answer>").description("选择答案").option("-m, --mode <mode>", "匹配模式: similar|exact", "similar").action(async (idx: string, q: string, a: string, opts: any) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/iframe-answer", { iframeIndex: Number(idx), questionText: q, answerText: a, matchMode: opts.mode }));
   });
 
   iframe.command("submit <index>").description("提交答案").action(async (idx: string) => {
-    output(await agentPost("/agent/iframe-submit", { iframeIndex: Number(idx) }), program.opts().json);
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/iframe-submit", { iframeIndex: Number(idx) }));
+  });
+
+  iframe.command("batch <index>").description("批量答题").requiredOption("--answers <json>", "答案 JSON: [{questionText,answerText}]").option("--submit", "答完自动提交").action(async (idx: string, opts: any) => {
+    if (!(await ensureConnected())) return;
+    const answers = JSON.parse(opts.answers);
+    out(await post("/agent/iframe-batch-answer", { iframeIndex: Number(idx), answers, autoSubmit: opts.submit }));
   });
 
   // ══════════════════════════════════════════
-  // 视频控制
+  // 视频 (video)
   // ══════════════════════════════════════════
 
   const video = program.command("video").description("视频控制");
 
   video.command("status <index>").description("视频状态").action(async (idx: string) => {
-    output(await agentPost("/agent/video/status", { iframeIndex: Number(idx) }), program.opts().json);
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/video/status", { iframeIndex: Number(idx) }));
   });
 
   video.command("play <index>").description("播放").action(async (idx: string) => {
-    output(await agentPost("/agent/video/play", { iframeIndex: Number(idx) }), program.opts().json);
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/video/play", { iframeIndex: Number(idx) }));
   });
 
   video.command("pause <index>").description("暂停").action(async (idx: string) => {
-    output(await agentPost("/agent/video/pause", { iframeIndex: Number(idx) }), program.opts().json);
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/video/pause", { iframeIndex: Number(idx) }));
   });
 
   video.command("rate <index> <rate>").description("设置倍速").action(async (idx: string, rate: string) => {
-    output(await agentPost("/agent/video/setRate", { iframeIndex: Number(idx), rate: Number(rate) }), program.opts().json);
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/video/setRate", { iframeIndex: Number(idx), rate: Number(rate) }));
   });
 
   video.command("autoplay <index>").description("自动播放").option("-r, --rate <rate>", "倍速", "1").option("-v, --volume <vol>", "音量", "1").action(async (idx: string, opts: any) => {
-    output(await agentPost("/agent/video/autoPlay", { iframeIndex: Number(idx), rate: Number(opts.rate), volume: Number(opts.volume) }), program.opts().json);
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/video/autoPlay", { iframeIndex: Number(idx), rate: Number(opts.rate), volume: Number(opts.volume) }));
   });
 
   // ══════════════════════════════════════════
-  // 课程导航（学习通）
+  // 课程 (course)
   // ══════════════════════════════════════════
 
-  const cx = program.command("cx").description("学习通课程操作");
+  const course = program.command("course").description("课程操作");
 
-  cx.command("courses").description("获取课程列表").action(async () => {
-    const r = await agentPost("/agent/cx/courses", {});
-    const json = program.opts().json;
-    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
-    for (const c of r.courses ?? []) console.log(`  ${c.name} (${c.courseId})`);
+  course.command("list").description("获取课程列表").action(async () => {
+    if (!(await ensureConnected())) return;
+    const r = await post("/agent/cx/courses", {});
+    out(r.courses ?? r);
   });
 
-  cx.command("chapters <courseId> <clazzId>").description("获取章节列表").action(async (cid: string, clid: string) => {
-    const r = await agentPost("/agent/cx/chapters", { courseId: cid, clazzId: clid });
-    const json = program.opts().json;
-    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
-    for (const ch of r) console.log(`${ch.completed ? "✅" : "⬜"} ${ch.text?.slice(0, 50)} [${ch.chapterId}]`);
+  course.command("chapters <courseId> <clazzId>").description("获取章节列表").action(async (cid: string, clid: string) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/cx/chapters", { courseId: cid, clazzId: clid }));
   });
 
-  cx.command("study <courseId> <clazzId> <chapterId>").description("进入章节学习").action(async (cid: string, clid: string, chid: string) => {
-    const r = await agentPost("/agent/cx/study", { courseId: cid, clazzId: clid, chapterId: chid });
-    output(r, program.opts().json);
+  course.command("open <courseId> <clazzId> <chapterId>").description("进入章节学习").action(async (cid: string, clid: string, chid: string) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/cx/study", { courseId: cid, clazzId: clid, chapterId: chid }));
+  });
+
+  course.command("chapters-remaining <courseId> <clazzId>").description("获取未完成章节").action(async (cid: string, clid: string) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/auto-study/start", { courseId: cid, clazzId: clid }));
   });
 
   // ══════════════════════════════════════════
-  // 自动学习状态
+  // 状态
   // ══════════════════════════════════════════
 
   program.command("status").description("当前学习状态").action(async () => {
-    const r = await agentFetch("/agent/auto-study/status");
-    const json = program.opts().json;
-    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
-    console.log(chalk.cyan("URL:"), r.url?.slice(0, 100));
-    console.log(chalk.cyan("标题:"), r.title);
-    console.log(chalk.cyan("任务:"), r.tasks?.join(", ") || "无");
-    console.log(chalk.cyan("iframe:"), r.iframes?.length || 0);
+    if (!(await ensureConnected())) return;
+    out(await api("/agent/auto-study/status"));
   });
 
   // ══════════════════════════════════════════
-  // 登录
+  // 登录 & OCR
   // ══════════════════════════════════════════
 
-  const login = program.command("login").description("登录操作");
-
-  login.command("cx-phone").description("学习通手机登录").requiredOption("--phone <phone>").requiredOption("--password <password>").action(async (opts: any) => {
-    output(await agentPost("/agent/login/cx-phone", { phone: opts.phone, password: opts.password }), program.opts().json);
+  program.command("login").description("登录操作").requiredOption("--phone <phone>").requiredOption("--password <password>").action(async (opts: any) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/login/cx-phone", { phone: opts.phone, password: opts.password }));
   });
 
-  // ══════════════════════════════════════════
-  // OCR
-  // ══════════════════════════════════════════
-
-  program.command("ocr <image>").description("OCR 验证码识别 (base64 或文件路径)").action(async (image: string) => {
+  program.command("ocr <image>").description("OCR 验证码识别").action(async (image: string) => {
+    if (!(await ensureConnected())) return;
     const { readFileSync, existsSync } = await import("node:fs");
     let b64 = image;
     if (existsSync(image)) b64 = readFileSync(image).toString("base64");
-    output(await agentPost("/agent/ocr", { image: b64 }), program.opts().json);
+    out(await post("/agent/ocr", { image: b64 }));
   });
 
   // ══════════════════════════════════════════
-  // 配置
+  // 配置 (config)
   // ══════════════════════════════════════════
 
   const config = program.command("config").description("ocsjs 配置管理");
 
   config.command("get").description("读取配置").action(async () => {
-    output(await agentFetch("/agent/config"), program.opts().json);
+    if (!(await ensureConnected())) return;
+    out(await api("/agent/config"));
   });
 
-  config.command("set <key> <value>").description("修改配置").action(async (key: string, value: string) => {
+  config.command("set <key> <value>").description("修改配置项").action(async (key: string, value: string) => {
+    if (!(await ensureConnected())) return;
     let parsed: any = value;
     try { parsed = JSON.parse(value); } catch {}
-    output(await agentPost("/agent/config/set", { key, value: parsed }), program.opts().json);
+    out(await post("/agent/config/set", { key, value: parsed }));
   });
 
   config.command("cache").description("查看答案缓存").action(async () => {
-    output(await agentFetch("/agent/config/cache"), program.opts().json);
+    if (!(await ensureConnected())) return;
+    out(await api("/agent/config/cache"));
   });
 
   config.command("clear-cache").description("清空答案缓存").action(async () => {
-    const r = await fetch(`${agentBaseUrl}/agent/config/cache`, { method: "DELETE" }).then(r => r.json());
-    output(r, program.opts().json);
+    if (!(await ensureConnected())) return;
+    const r = await fetch(`${agentBaseUrl}/agent/config/cache`, { method: "DELETE" }).then((r) => r.json());
+    out(r);
   });
+
+  // ══════════════════════════════════════════
+  // 原始请求 (request)
+  // ══════════════════════════════════════════
+
+  program
+    .command("request <method> <path>")
+    .description("原始 Agent API 请求 (GET/POST/DELETE)")
+    .option("--body <json>", "请求体 JSON")
+    .action(async (method: string, path: string, opts: any) => {
+      if (!(await ensureConnected())) return;
+      const options: RequestInit = { method: method.toUpperCase() };
+      if (opts.body) {
+        options.headers = { "Content-Type": "application/json" };
+        options.body = opts.body;
+      }
+      out(await api(path.startsWith("/") ? path : `/${path}`, options));
+    });
 
   return program;
 }
