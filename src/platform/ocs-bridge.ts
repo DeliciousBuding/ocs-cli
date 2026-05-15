@@ -28,7 +28,7 @@ export class OCSBridge {
   }> {
     const browser = this.controller.getBrowser(browserId);
     if (!browser) throw new Error("No browser running");
-    const page = browser.context.pages()[pageIndex ?? 0];
+    const page = browser.context?.pages()[pageIndex ?? 0];
     if (!page) throw new Error(`Page ${pageIndex ?? 0} not found`);
 
     const url = page.url();
@@ -177,7 +177,7 @@ export class OCSBridge {
   async controlMedia(action: "play" | "pause" | "setRate" | "setVolume", value?: number, browserId?: string, pageIndex?: number): Promise<ActionResult> {
     const browser = this.controller.getBrowser(browserId);
     if (!browser) throw new Error("No browser running");
-    const page = browser.context.pages()[pageIndex ?? 0];
+    const page = browser.context?.pages()[pageIndex ?? 0];
     if (!page) throw new Error(`Page ${pageIndex ?? 0} not found`);
 
     const result = await page.evaluate(({ action, value }) => {
@@ -217,7 +217,7 @@ export class OCSBridge {
   ): Promise<ActionResult> {
     const browser = this.controller.getBrowser(browserId);
     if (!browser) throw new Error("No browser running");
-    const page = browser.context.pages()[pageIndex ?? 0];
+    const page = browser.context?.pages()[pageIndex ?? 0];
     if (!page) throw new Error(`Page ${pageIndex ?? 0} not found`);
 
     const result = await page.evaluate(

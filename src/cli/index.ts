@@ -82,8 +82,8 @@ export function createCLI(): Command {
   // ── 连接 ocs-desktop 浏览器 ──
   program
     .command("connect")
-    .description("连接到 ocs-desktop 管理的浏览器（通过 CDP）")
-    .option("--cdp-port <port>", "CDP 端口", "9222")
+    .description("连接到 ocs-desktop 管理的浏览器（通过 Agent 服务）")
+    .option("--agent-port <port>", "Agent 服务端口", "17900")
     .option("--url <url>", "连接后导航到指定 URL")
     .option("-p, --port <port>", "API 服务端口", "17800")
     .option("--host <host>", "监听地址", "127.0.0.1")
@@ -92,7 +92,7 @@ export function createCLI(): Command {
     .action(async (opts) => {
       try {
         console.log(chalk.cyan("正在连接 ocs-desktop 浏览器..."));
-        const result = await controller.connectToDesktop(Number(opts.cdpPort));
+        const result = await controller.connectToDesktop(Number(opts.agentPort));
         console.log(chalk.green(`已连接 浏览器 ID: ${result.browserId}`));
         console.log(chalk.gray(`页面数: ${result.pages.length}`));
         for (const p of result.pages) {

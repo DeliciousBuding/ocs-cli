@@ -53,13 +53,8 @@ export function createServer(controller: BrowserController, config: ServerConfig
 
   app.post("/browser/connect", async (req, res) => {
     try {
-      const { cdpPort, cdpUrl } = req.body ?? {};
-      let result;
-      if (cdpUrl) {
-        result = await controller.connectToCDP(cdpUrl);
-      } else {
-        result = await controller.connectToDesktop(cdpPort ?? 9222);
-      }
+      const { agentPort } = req.body ?? {};
+      const result = await controller.connectToDesktop(agentPort ?? 17900);
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -277,7 +272,15 @@ export function createServer(controller: BrowserController, config: ServerConfig
     try {
       const browser = controller.getBrowser(req.query.browserId as string);
       if (!browser) throw new Error("No browser running");
-      const page = browser.context.pages()[Number(req.query.pageIndex ?? 0)];
+      if (browser.agentUrl) {
+        const resp = await fetch(`${browser.agentUrl}/agent/ocs-analyze`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pageIndex: Number(req.query.pageIndex ?? 0) }),
+        });
+        const data = await resp.json() as any;
+        return res.json(data.questions ?? []);
+      }
+      const page = browser.context?.pages()[Number(req.query.pageIndex ?? 0)];
       if (!page) throw new Error("Page not found");
       const questions = await bridge.extractQuestions(page);
       res.json(questions);
@@ -290,7 +293,11 @@ export function createServer(controller: BrowserController, config: ServerConfig
     try {
       const browser = controller.getBrowser(req.query.browserId as string);
       if (!browser) throw new Error("No browser running");
-      const page = browser.context.pages()[Number(req.query.pageIndex ?? 0)];
+      if (browser.agentUrl) {
+        const resp = await fetch(`${browser.agentUrl}/agent/media?pageIndex=${req.query.pageIndex ?? 0}`);
+        return res.json(await resp.json());
+      }
+      const page = browser.context?.pages()[Number(req.query.pageIndex ?? 0)];
       if (!page) throw new Error("Page not found");
       const media = await bridge.detectMedia(page);
       res.json(media);
