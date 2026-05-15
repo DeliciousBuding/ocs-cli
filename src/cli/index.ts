@@ -9,8 +9,21 @@ let agentBaseUrl = "http://127.0.0.1:17900";
 let jsonMode = false;
 
 async function api(path: string, options?: RequestInit): Promise<any> {
-  const resp = await fetch(`${agentBaseUrl}${path}`, options);
-  return resp.json();
+  try {
+    const resp = await fetch(`${agentBaseUrl}${path}`, options);
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      let msg = text;
+      try { msg = JSON.parse(text).error || text; } catch {}
+      throw new Error(`HTTP ${resp.status}: ${msg}`);
+    }
+    return resp.json();
+  } catch (e: any) {
+    if (e.message?.includes("fetch failed") || e.message?.includes("ECONNREFUSED")) {
+      throw new Error("Agent 服务未运行。先执行: ocs connect");
+    }
+    throw e;
+  }
 }
 
 function post(path: string, body: any): Promise<any> {
@@ -320,9 +333,9 @@ export function createCLI(): Command {
     out(await post("/agent/cx/study", { courseId: cid, clazzId: clid, chapterId: chid }));
   });
 
-  course.command("chapters-remaining <courseId> <clazzId>").description("获取未完成章节").action(async (cid: string, clid: string) => {
+  course.command("remaining <courseId> <clazzId>").description("获取未完成章节列表").action(async (cid: string, clid: string) => {
     if (!(await ensureConnected())) return;
-    out(await post("/agent/auto-study/start", { courseId: cid, clazzId: clid }));
+    out(await post("/agent/cx/chapters", { courseId: cid, clazzId: clid }));
   });
 
   // ══════════════════════════════════════════
