@@ -324,6 +324,37 @@ export function createCLI(): Command {
   });
 
   // ══════════════════════════════════════════
+  // 智慧树 (zhs)
+  // ══════════════════════════════════════════
+
+  const zhs = program.command("zhs").description("智慧树课程操作");
+
+  zhs.command("courses").description("获取课程列表").action(async () => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/zhs/courses", {}));
+  });
+
+  zhs.command("video").description("视频状态").action(async () => {
+    if (!(await ensureConnected())) return;
+    out(await api("/agent/zhs/video"));
+  });
+
+  zhs.command("login-status").description("登录状态").action(async () => {
+    if (!(await ensureConnected())) return;
+    out(await api("/agent/zhs/login-status"));
+  });
+
+  zhs.command("login-phone").description("手机登录").requiredOption("--phone <phone>").requiredOption("--password <password>").action(async (opts: any) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/zhs/login-phone", { phone: opts.phone, password: opts.password }));
+  });
+
+  zhs.command("login-school").description("学校登录").requiredOption("--school <name>").requiredOption("--id <id>").requiredOption("--password <password>").action(async (opts: any) => {
+    if (!(await ensureConnected())) return;
+    out(await post("/agent/zhs/login-school", { schoolname: opts.school, id: opts.id, password: opts.password }));
+  });
+
+  // ══════════════════════════════════════════
   // 状态
   // ══════════════════════════════════════════
 
