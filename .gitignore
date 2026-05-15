@@ -7,3 +7,4 @@ dist/
 reference/
 *.png
 test-*.mjs
+ROADMAP.md
