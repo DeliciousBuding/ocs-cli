@@ -1,39 +1,36 @@
 # OCS-CLI
 
-**AI Agent 的网课自动化工具箱** — 开发中
+> AI Agent 的网课自动化工具箱
 
-让 AI Agent 能够操控浏览器，复用 ocsjs 的识别逻辑，完成课程学习任务。
+[![CI](https://github.com/DeliciousBuding/ocs-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/DeliciousBuding/ocs-cli/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+## 这是什么
+
+OCS-CLI 让 AI Agent（比如 Claude Code、Codex）能够帮你自动刷网课。
+
+它基于 [ocsjs](https://github.com/ocsjs/ocsjs) 的识别能力和 [ocs-desktop](https://github.com/ocsjs/ocs-desktop) 的浏览器管理，通过 HTTP API 暴露给 AI Agent 使用。
 
 ```
-AI Agent ←→ ocs-cli ←HTTP→ ocs-desktop ←Playwright→ Chrome + ocsjs
+你 → AI Agent → ocs-cli → ocs-desktop → Chrome + ocsjs → 网课网站
 ```
 
-> 本项目正在积极开发中，部分功能尚未完成或未经充分测试。欢迎反馈问题。
+## 为什么做这个
 
-## 当前状态
+- 网课耗时间，但大部分内容是重复性的
+- 传统题库不一定准，LLM 可以推理答案
+- ocsjs 已经很强大了，但只能在浏览器里手动触发
+- 如果 Agent 能控制 ocsjs，就能全自动完成
 
-| 功能 | 状态 | 说明 |
-|------|------|------|
-| 浏览器控制 | ✅ 可用 | 导航、点击、填写、截图、DOM 快照 |
-| iframe 操作 | ✅ 可用 | 递归搜索、题目提取、答案注入 |
-| 学习通课程导航 | ✅ 已测试 | 课程列表、章节列表、进入学习页 |
-| 学习通视频检测 | ✅ 已测试 | iframe 内视频元素检测 |
-| 智慧树课程导航 | ⚠️ 基本可用 | 课程列表、章节获取，视频页面跳转待完善 |
-| 智慧树视频控制 | ⚠️ 待调试 | 视频端点的 pageIndex 参数有兼容性问题 |
-| 答题（选择/填空） | ⚠️ 待测试 | iframe 内答案注入和提交，未在真实答题场景验证 |
-| 登录自动化 | ⚠️ 待测试 | 学习通/智慧树登录端点已写，未完整验证 |
-| OCR 验证码 | ⚠️ 依赖外部 | 需要 ocs-desktop 的 ddddocr 模块 |
-| 其他平台 | 🔲 待开发 | 智慧职教/职教云/MOOC/雨课堂 |
-| MCP 服务器 | 🔲 待测试 | 基础框架已有，未验证 |
+## 感谢
 
-## 快速开始
+本项目站在巨人的肩膀上：
 
-### 前置条件
+- **[ocsjs](https://github.com/ocsjs/ocsjs)** — 核心识别和自动化逻辑，支持 6 大课程平台
+- **[ocs-desktop](https://github.com/ocsjs/ocs-desktop)** — 浏览器管理和用户脚本注入
+- 感谢 [enncy](https://github.com/enncy) 和所有 ocsjs/ocs-desktop 贡献者的工作
 
-- Node.js >= 20
-- [ocs-desktop](https://github.com/ocsjs/ocs-desktop) 已启动，浏览器已打开
-
-### 安装
+## 安装
 
 ```bash
 git clone https://github.com/DeliciousBuding/ocs-cli.git
@@ -43,86 +40,104 @@ npm run build
 npm link
 ```
 
-### 使用
+前置条件：
+- Node.js >= 20
+- [ocs-desktop](https://github.com/ocsjs/ocs-desktop) 已启动
+
+## 使用
 
 ```bash
 # 连接 ocs-desktop
 ocs connect
 
-# 检查环境
-ocs doctor
-
-# 学习通：查看课程 → 进入章节 → 检测任务
+# 查看课程
 ocs course list --json
+
+# 进入章节
 ocs course open <courseId> <clazzId> <chapterId>
-ocs iframe list
-ocs iframe questions 0 --json    # 提取题目
-ocs video status                 # 检测视频
-ocs video autoplay -r 2          # 2x 播放
+
+# 启动答案服务（给 ocsjs 提供答案）
+ocs answer start
+
+# 配置 LLM 答案源
+ocs answer-config llm --api <url> --model <model> --key <key>
+
+# 查看答案缓存
+ocs answer cache
+```
+
+## 答案服务
+
+OCS-CLI 提供一个 HTTP 答案服务，ocsjs 会自动查询它：
+
+```
+ocsjs 检测到题目
+  → 查询 ocs-cli 答案服务 (localhost:17901)
+  → 答案来源（按优先级）：
+      1. 本地缓存（已答过的题）
+      2. 题库 API（用户配置的付费题库）
+      3. LLM API（用户配置的大模型）
+      4. Agent 队列（等 AI Agent 回答）
+```
+
+配置方式：
+
+```bash
+# 添加题库
+ocs answer-config tiku --name "我的题库" --url "https://api.example.com/query"
+
+# 配置 LLM
+ocs answer-config llm --api "https://api.openai.com/v1/chat/completions" --model "gpt-4o" --key "sk-..."
+
+# 设置置信度阈值
+ocs answer-config mode --confidence 0.6
 ```
 
 ## 命令速查
 
 ```
-ocs doctor                              # 环境检查
-ocs connect                             # 连接 ocs-desktop
-ocs detect <url>                        # 检测课程平台
+ocs doctor              # 环境检查
+ocs connect             # 连接 ocs-desktop
+ocs detect <url>        # 检测课程平台
 
-ocs page list / open / screenshot / snapshot / eval / content / url
-ocs act click / fill / press / hover / wait
-ocs iframe list / eval / media / questions / answer / submit / batch
-ocs video status / play / pause / rate / autoplay
-ocs course list / chapters / open / remaining
-ocs zhs courses / video / login-status / login-phone / login-school
-ocs config get / set / cache / clear-cache
-ocs ocr <image>                         # 验证码识别
-ocs request <method> <path>             # 原始 API 请求
+ocs page list/open/screenshot/snapshot/eval
+ocs act click/fill/press/hover/wait
+ocs iframe list/eval/media/questions
+ocs video status/play/pause/rate/autoplay
+ocs course list/chapters/open/remaining
+ocs zhs courses/video/login-status
+
+ocs answer start        # 启动答案服务
+ocs answer query "题目"  # 查询答案
+ocs answer-config tiku/llm  # 配置答案源
+
+ocs request <method> <path>  # 原始 API
 ```
 
 所有命令支持 `--json` 输出。
 
-## Agent 集成
+## 支持的平台
 
-### HTTP API
+| 平台 | 状态 |
+|------|------|
+| 超星学习通 | ✅ 基本可用 |
+| 智慧树 | ⚠️ 部分可用 |
+| 智慧职教 | 🔲 待开发 |
+| 职教云 | 🔲 待开发 |
+| 中国大学MOOC | 🔲 待开发 |
+| 雨课堂 | 🔲 待开发 |
 
-ocs-cli 通过 HTTP 与 ocs-desktop 的 Agent 服务通信（端口 17900，带认证令牌）。
+## 开发
 
-### MCP（开发中）
-
-```json
-{
-  "mcpServers": {
-    "ocs": {
-      "command": "node",
-      "args": ["path/to/ocs-cli/dist/mcp/entry.js"]
-    }
-  }
-}
+```bash
+npm install
+npm run build
+npm run dev -- doctor
+npm run typecheck
 ```
 
-### Skill
-
-`skill/SKILL.md` 包含 Agent 使用手册，覆盖所有已实现命令。
-
-## 架构
-
-```
-ocs-cli/
-├── src/
-│   ├── browser/controller.ts    # 浏览器控制器
-│   ├── server/index.ts          # HTTP API 服务
-│   ├── platform/                # 平台检测 + ocsjs 桥接
-│   ├── cli/index.ts             # CLI 命令
-│   └── mcp/                     # MCP 服务器（开发中）
-├── skill/SKILL.md               # Agent 使用手册
-└── reference/                   # ocsjs + ocs-desktop 源码参考
-```
-
-## 相关项目
-
-- [ocsjs](https://github.com/ocsjs/ocsjs) — 网课自动化用户脚本
-- [ocs-desktop](https://github.com/ocsjs/ocs-desktop) — 网课自动化桌面客户端
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可证
 
-MIT
+[MIT](LICENSE)
