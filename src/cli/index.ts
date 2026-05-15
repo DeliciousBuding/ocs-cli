@@ -3,308 +3,313 @@ import chalk from "chalk";
 import { BrowserController } from "../browser/controller.js";
 import { createServer } from "../server/index.js";
 import { PlatformDetector } from "../platform/detector.js";
-import { OCSBridge } from "../platform/ocs-bridge.js";
 
 const controller = new BrowserController();
 const detector = new PlatformDetector();
-const bridge = new OCSBridge(controller);
+
+/** Agent HTTP 服务基础 URL */
+let agentBaseUrl = "http://127.0.0.1:17900";
+
+async function agentFetch(path: string, options?: RequestInit): Promise<any> {
+  const resp = await fetch(`${agentBaseUrl}${path}`, options);
+  return resp.json();
+}
+
+function agentPost(path: string, body: any): Promise<any> {
+  return agentFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function output(data: any, jsonMode: boolean) {
+  if (jsonMode) {
+    console.log(JSON.stringify(data, null, 2));
+  } else if (typeof data === "string") {
+    console.log(data);
+  } else {
+    for (const [k, v] of Object.entries(data)) {
+      console.log(chalk.cyan(k + ":") + " " + String(v));
+    }
+  }
+}
 
 export function createCLI(): Command {
   const program = new Command();
 
   program
     .name("ocs")
-    .description("OCS-CLI — AI Agent 浏览器自动化工具，复用 ocsjs 识别逻辑")
-    .version("0.1.0");
+    .description("OCS-CLI — AI Agent 的网课自动化工具箱")
+    .version("0.1.0")
+    .option("--json", "JSON 输出", false)
+    .option("--agent <url>", "Agent 服务地址", "http://127.0.0.1:17900");
 
-  // ── 启动浏览器 ──
-  program
-    .command("launch")
-    .description("启动浏览器实例")
-    .option("-e, --executable-path <path>", "Chrome/Edge 可执行文件路径")
-    .option("--headless", "无头模式运行", false)
-    .option("--port <port>", "API 服务端口", "17800")
-    .option("--host <host>", "API 服务监听地址", "127.0.0.1")
-    .option("--auth-token <token>", "API 认证令牌")
-    .option("-u, --url <url>", "启动后导航到指定 URL")
-    .option("--proxy <url>", "代理服务器地址")
-    .option("-s, --serve", "同时启动 HTTP API 服务", false)
-    .action(async (opts) => {
-      try {
-        console.log(chalk.cyan("正在启动浏览器..."));
-        const result = await controller.launch({
-          executablePath: opts.executablePath,
-          headless: opts.headless,
-          proxy: opts.proxy,
-        });
-        console.log(chalk.green(`浏览器已启动 ID: ${result.browserId}`));
-        console.log(chalk.gray(`页面数: ${result.pages.length}`));
-
-        if (opts.url) {
-          await controller.navigate(opts.url, result.browserId);
-          console.log(chalk.green(`已导航到: ${opts.url}`));
-        }
-
-        if (opts.serve) {
-          const server = createServer(controller, {
-            port: Number(opts.port),
-            host: opts.host,
-            authToken: opts.authToken,
-          });
-          const port = await server.start();
-          console.log(chalk.green(`API 服务已启动: http://${opts.host}:${port}`));
-          console.log(chalk.gray("按 Ctrl+C 停止所有服务"));
-
-          process.on("SIGINT", async () => {
-            console.log(chalk.yellow("\n正在关闭..."));
-            await server.stop();
-            await controller.closeAll();
-            process.exit(0);
-          });
-
-          // Keep alive
-          await new Promise(() => {});
-        } else {
-          // Without --serve, just launch and print info
-          const platform = opts.url ? detector.detect(opts.url) : null;
-          if (platform) {
-            console.log(chalk.cyan(`检测到平台: ${platform.name}`));
-          }
-          console.log(chalk.gray("使用 'ocs serve' 启动 API 服务供 Agent 调用"));
-          await controller.close();
-        }
-      } catch (e: any) {
-        console.error(chalk.red(`启动失败: ${e.message}`));
-        process.exit(1);
-      }
-    });
-
-  // ── 连接 ocs-desktop 浏览器 ──
+  // ── 连接 ──
   program
     .command("connect")
-    .description("连接到 ocs-desktop 管理的浏览器（自动发现 Agent 服务）")
-    .option("--agent-port <port>", "Agent 服务端口（默认自动发现）")
-    .option("--url <url>", "连接后导航到指定 URL")
-    .option("-p, --port <port>", "API 服务端口", "17800")
-    .option("--host <host>", "监听地址", "127.0.0.1")
-    .option("--auth-token <token>", "认证令牌")
-    .option("-s, --serve", "同时启动 HTTP API 服务", false)
-    .action(async (opts) => {
-      try {
-        console.log(chalk.cyan("正在连接 ocs-desktop 浏览器..."));
-        const result = await controller.connectToDesktop(opts.agentPort ? Number(opts.agentPort) : undefined);
-        console.log(chalk.green(`已连接 浏览器 ID: ${result.browserId}`));
-        console.log(chalk.gray(`页面数: ${result.pages.length}`));
-        for (const p of result.pages) {
-          console.log(chalk.gray(`  [${p.index}] ${p.url} — ${p.title}`));
-        }
-
-        if (opts.url) {
-          await controller.navigate(opts.url, result.browserId);
-          console.log(chalk.green(`已导航到: ${opts.url}`));
-        }
-
-        if (opts.serve) {
-          const server = createServer(controller, {
-            port: Number(opts.port),
-            host: opts.host,
-            authToken: opts.authToken,
-          });
-          const port = await server.start();
-          console.log(chalk.green(`API 服务已启动: http://${opts.host}:${port}`));
-          console.log(chalk.gray("按 Ctrl+C 停止（不会关闭 ocs-desktop 的浏览器）"));
-
-          process.on("SIGINT", async () => {
-            console.log(chalk.yellow("\n正在断开连接..."));
-            await server.stop();
-            // 不关闭浏览器，只是断开 CDP 连接
-            process.exit(0);
-          });
-          await new Promise(() => {});
-        }
-      } catch (e: any) {
-        console.error(chalk.red(`连接失败: ${e.message}`));
-        process.exit(1);
-      }
-    });
-
-  // ── 启动 API 服务 ──
-  program
-    .command("serve")
-    .description("启动 HTTP API 服务（供 Agent 调用）")
-    .option("-p, --port <port>", "服务端口", "17800")
-    .option("--host <host>", "监听地址", "127.0.0.1")
-    .option("--auth-token <token>", "认证令牌")
-    .option("-e, --executable-path <path>", "Chrome/Edge 路径")
-    .option("--headless", "无头模式", false)
-    .action(async (opts) => {
-      try {
-        console.log(chalk.cyan("正在启动浏览器..."));
-        const result = await controller.launch({
-          executablePath: opts.executablePath,
-          headless: opts.headless,
-        });
-        console.log(chalk.green(`浏览器已启动 ID: ${result.browserId}`));
-
-        const server = createServer(controller, {
-          port: Number(opts.port),
-          host: opts.host,
-          authToken: opts.authToken,
-        });
-        const port = await server.start();
-        console.log(chalk.green(`API 服务已启动: http://${opts.host}:${port}`));
-        console.log(chalk.gray("API 文档: GET /doctor  查看所有端点"));
-        console.log(chalk.gray("按 Ctrl+C 停止"));
-
-        process.on("SIGINT", async () => {
-          console.log(chalk.yellow("\n正在关闭..."));
-          await server.stop();
-          await controller.closeAll();
-          process.exit(0);
-        });
-
-        await new Promise(() => {});
-      } catch (e: any) {
-        console.error(chalk.red(`启动失败: ${e.message}`));
-        process.exit(1);
-      }
-    });
-
-  // ── 状态检查 ──
-  program
-    .command("doctor")
-    .description("检查运行环境和浏览器状态")
+    .description("连接到 ocs-desktop 的 Agent 服务")
     .action(async () => {
-      console.log(chalk.cyan("OCS-CLI 环境检查\n"));
-      console.log(`平台: ${process.platform}`);
-      console.log(`Node: ${process.version}`);
-      console.log(`Chrome/Edge: ${detector.listPlatforms().length} 个平台已配置`);
-      console.log(`运行中的浏览器: ${controller.listBrowsers().length}`);
-      console.log(`支持的平台:`);
-      for (const p of detector.listPlatforms()) {
-        console.log(chalk.gray(`  - ${p.name} (${p.domains.join(", ")})`));
-      }
-    });
-
-  // ── 平台检测 ──
-  program
-    .command("detect <url>")
-    .description("检测 URL 对应的课程平台")
-    .action((url) => {
-      const result = detector.detect(url);
-      if (result) {
-        console.log(chalk.green(`检测到平台: ${result.name} (${result.id})`));
-        console.log(chalk.gray(`域名: ${result.domains.join(", ")}`));
-      } else {
-        console.log(chalk.yellow("未识别到已支持的课程平台"));
-        console.log(chalk.gray("支持的平台:"));
-        for (const p of detector.listPlatforms()) {
-          console.log(chalk.gray(`  - ${p.name}: ${p.domains.join(", ")}`));
-        }
-      }
-    });
-
-  // ── 页面分析 ──
-  program
-    .command("analyze")
-    .description("分析当前页面（提取题目、媒体等）")
-    .option("-b, --browser-id <id>", "浏览器 ID")
-    .option("-p, --page-index <index>", "页面索引", "0")
-    .action(async (opts) => {
+      agentBaseUrl = program.opts().agent;
       try {
-        const result = await bridge.analyzePage(opts.browserId, Number(opts.pageIndex));
-        console.log(chalk.cyan("页面分析结果:\n"));
-        console.log(`URL: ${result.url}`);
-        console.log(`标题: ${result.title}`);
-        console.log(`平台: ${result.platform ?? "未知"}`);
-        console.log(`题目数: ${result.questions.length}`);
-        console.log(`媒体数: ${result.media.length}`);
+        // 自动发现
+        const discover = await fetch("http://127.0.0.1:15319/agent").then(r => r.json()).catch(() => null) as any;
+        if (discover?.agentUrl) agentBaseUrl = discover.agentUrl;
 
-        if (result.questions.length > 0) {
-          console.log(chalk.cyan("\n── 题目 ──"));
-          for (const q of result.questions) {
-            console.log(chalk.white(`\n[${q.type}] ${q.text}`));
-            for (const opt of q.options) {
-              console.log(chalk.gray(`  - ${opt.text}`));
-            }
-          }
-        }
-
-        if (result.media.length > 0) {
-          console.log(chalk.cyan("\n── 媒体 ──"));
-          for (const m of result.media) {
-            console.log(`${m.type}: ${m.paused ? "已暂停" : "播放中"} (${m.playbackRate}x) ${m.currentTime.toFixed(1)}/${m.duration.toFixed(1)}s`);
-          }
-        }
-      } catch (e: any) {
-        console.error(chalk.red(`分析失败: ${e.message}`));
-        process.exit(1);
-      }
-    });
-
-  // ── 快速命令 ──
-  program
-    .command("screenshot")
-    .description("截取当前页面截图")
-    .option("-b, --browser-id <id>", "浏览器 ID")
-    .option("-p, --page-index <index>", "页面索引", "0")
-    .option("-o, --output <file>", "保存文件路径")
-    .option("--full-page", "截取完整页面", false)
-    .action(async (opts) => {
-      try {
-        const b64 = await controller.screenshot(
-          { fullPage: opts.fullPage },
-          opts.browserId,
-          Number(opts.pageIndex)
-        );
-        if (opts.output) {
-          const { writeFileSync } = await import("node:fs");
-          writeFileSync(opts.output, Buffer.from(b64, "base64"));
-          console.log(chalk.green(`截图已保存: ${opts.output}`));
+        const health = await agentFetch("/agent/health");
+        if (health.status === "ok") {
+          console.log(chalk.green(`已连接 ${agentBaseUrl}`));
+          console.log(chalk.gray(`浏览器: ${health.hasBrowser ? "是" : "否"}, 页面: ${health.pages}`));
         } else {
-          console.log(b64);
+          console.log(chalk.red("Agent 服务异常"));
         }
-      } catch (e: any) {
-        console.error(chalk.red(`截图失败: ${e.message}`));
-        process.exit(1);
+      } catch {
+        console.log(chalk.red(`无法连接 ${agentBaseUrl}`));
+        console.log(chalk.gray("请确认 ocs-desktop 已启动且浏览器已打开"));
       }
     });
 
-  program
-    .command("navigate <url>")
-    .description("导航到指定 URL")
-    .option("-b, --browser-id <id>", "浏览器 ID")
-    .option("-p, --page-index <index>", "页面索引", "0")
-    .action(async (url, opts) => {
-      try {
-        await controller.navigate(url, opts.browserId, Number(opts.pageIndex));
-        console.log(chalk.green(`已导航到: ${url}`));
-        const platform = detector.detect(url);
-        if (platform) console.log(chalk.cyan(`平台: ${platform.name}`));
-      } catch (e: any) {
-        console.error(chalk.red(`导航失败: ${e.message}`));
-        process.exit(1);
-      }
-    });
+  // ── 医生 ──
+  program.command("doctor").description("检查环境").action(async () => {
+    console.log(chalk.cyan("OCS-CLI 环境检查\n"));
+    console.log(`平台: ${process.platform}`);
+    console.log(`Node: ${process.version}`);
+    // 检查 Agent 服务
+    try {
+      const h = await agentFetch("/agent/health");
+      console.log(chalk.green(`Agent 服务: 在线 (${agentBaseUrl})`));
+      console.log(`浏览器: ${h.hasBrowser ? "运行中" : "未启动"}, 页面: ${h.pages}`);
+    } catch {
+      console.log(chalk.yellow(`Agent 服务: 离线`));
+    }
+    console.log(`\n支持平台:`);
+    for (const p of detector.listPlatforms()) {
+      console.log(chalk.gray(`  ${p.name} (${p.id})`));
+    }
+  });
 
-  program
-    .command("eval <expression>")
-    .description("在页面中执行 JavaScript 表达式")
-    .option("-b, --browser-id <id>", "浏览器 ID")
-    .option("-p, --page-index <index>", "页面索引", "0")
-    .action(async (expression, opts) => {
-      try {
-        const result = await controller.evaluate(expression, opts.browserId, Number(opts.pageIndex));
-        console.log(JSON.stringify(result, null, 2));
-      } catch (e: any) {
-        console.error(chalk.red(`执行失败: ${e.message}`));
-        process.exit(1);
-      }
-    });
+  // ══════════════════════════════════════════
+  // 页面操作
+  // ══════════════════════════════════════════
+
+  const page = program.command("page").description("页面操作");
+
+  page.command("list").description("列出页面").action(async () => {
+    const pages = await agentFetch("/agent/pages");
+    const json = program.opts().json;
+    if (json) { console.log(JSON.stringify(pages, null, 2)); return; }
+    for (const p of pages) console.log(`[${p.index}] ${p.url} — ${p.title}`);
+  });
+
+  page.command("navigate <url>").description("导航到 URL").action(async (url: string) => {
+    const r = await agentPost("/agent/navigate", { url });
+    output(r, program.opts().json);
+  });
+
+  page.command("new [url]").description("新建页面").action(async (url?: string) => {
+    const r = await agentPost("/agent/newPage", { url });
+    output(r, program.opts().json);
+  });
+
+  page.command("screenshot [file]").description("截图").option("--full-page", "完整页面").action(async (file?: string, opts?: any) => {
+    const data = await agentFetch(`/agent/screenshot?fullPage=${opts?.fullPage || false}`);
+    if (file) {
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(file, Buffer.from(data.screenshot, "base64"));
+      console.log(chalk.green(`已保存: ${file}`));
+    } else {
+      console.log(data.screenshot);
+    }
+  });
+
+  page.command("snapshot").description("DOM 快照").action(async () => {
+    const data = await agentFetch("/agent/snapshot");
+    console.log(data.snapshot);
+  });
+
+  page.command("eval <expr>").description("执行 JavaScript").action(async (expr: string) => {
+    const r = await agentPost("/agent/eval", { expression: expr });
+    output(r.result ?? r, program.opts().json);
+  });
+
+  page.command("content").description("获取 HTML").action(async () => {
+    const r = await agentFetch("/agent/content");
+    console.log(r.content);
+  });
+
+  // ══════════════════════════════════════════
+  // 元素操作
+  // ══════════════════════════════════════════
+
+  program.command("click <selector>").description("点击元素").action(async (sel: string) => {
+    output(await agentPost("/agent/click", { selector: sel }), program.opts().json);
+  });
+
+  program.command("fill <selector> <value>").description("填写输入框").action(async (sel: string, val: string) => {
+    output(await agentPost("/agent/fill", { selector: sel, value: val }), program.opts().json);
+  });
+
+  program.command("press <key>").description("按键").action(async (key: string) => {
+    output(await agentPost("/agent/press", { key }), program.opts().json);
+  });
+
+  program.command("wait <selector>").description("等待元素").option("-t, --timeout <ms>", "超时", "30000").action(async (sel: string, opts: any) => {
+    output(await agentPost("/agent/waitFor", { selector: sel, timeout: Number(opts.timeout) }), program.opts().json);
+  });
+
+  // ══════════════════════════════════════════
+  // iframe 操作
+  // ══════════════════════════════════════════
+
+  const iframe = program.command("iframe").description("iframe 操作");
+
+  iframe.command("list").description("列出 iframe").action(async () => {
+    const r = await agentFetch("/agent/iframes");
+    const json = program.opts().json;
+    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
+    for (const f of r) console.log(`[${f.index}] ${f.src?.slice(0, 80)} ${f.accessible ? chalk.green("可访问") : chalk.red("跨域")}`);
+  });
+
+  iframe.command("eval <index> <expr>").description("iframe 内执行 JS").action(async (idx: string, expr: string) => {
+    const r = await agentPost("/agent/iframe-eval", { iframeIndex: Number(idx), expression: expr });
+    output(r.result ?? r, program.opts().json);
+  });
+
+  iframe.command("media <index>").description("iframe 内媒体").action(async (idx: string) => {
+    output(await agentPost("/agent/iframe-media", { iframeIndex: Number(idx) }), program.opts().json);
+  });
+
+  iframe.command("questions <index>").description("iframe 内题目").action(async (idx: string) => {
+    const r = await agentPost("/agent/iframe-questions", { iframeIndex: Number(idx) });
+    const json = program.opts().json;
+    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
+    for (const q of r) {
+      console.log(`[${q.type}] ${q.text?.slice(0, 60)}`);
+      for (const o of q.options?.slice(0, 4) ?? []) console.log(chalk.gray(`  - ${o.text}`));
+    }
+  });
+
+  iframe.command("answer <index> <question> <answer>").description("选择答案").option("-m, --mode <mode>", "匹配模式", "similar").action(async (idx: string, q: string, a: string, opts: any) => {
+    output(await agentPost("/agent/iframe-answer", { iframeIndex: Number(idx), questionText: q, answerText: a, matchMode: opts.mode }), program.opts().json);
+  });
+
+  iframe.command("submit <index>").description("提交答案").action(async (idx: string) => {
+    output(await agentPost("/agent/iframe-submit", { iframeIndex: Number(idx) }), program.opts().json);
+  });
+
+  // ══════════════════════════════════════════
+  // 视频控制
+  // ══════════════════════════════════════════
+
+  const video = program.command("video").description("视频控制");
+
+  video.command("status <index>").description("视频状态").action(async (idx: string) => {
+    output(await agentPost("/agent/video/status", { iframeIndex: Number(idx) }), program.opts().json);
+  });
+
+  video.command("play <index>").description("播放").action(async (idx: string) => {
+    output(await agentPost("/agent/video/play", { iframeIndex: Number(idx) }), program.opts().json);
+  });
+
+  video.command("pause <index>").description("暂停").action(async (idx: string) => {
+    output(await agentPost("/agent/video/pause", { iframeIndex: Number(idx) }), program.opts().json);
+  });
+
+  video.command("rate <index> <rate>").description("设置倍速").action(async (idx: string, rate: string) => {
+    output(await agentPost("/agent/video/setRate", { iframeIndex: Number(idx), rate: Number(rate) }), program.opts().json);
+  });
+
+  video.command("autoplay <index>").description("自动播放").option("-r, --rate <rate>", "倍速", "1").option("-v, --volume <vol>", "音量", "1").action(async (idx: string, opts: any) => {
+    output(await agentPost("/agent/video/autoPlay", { iframeIndex: Number(idx), rate: Number(opts.rate), volume: Number(opts.volume) }), program.opts().json);
+  });
+
+  // ══════════════════════════════════════════
+  // 课程导航（学习通）
+  // ══════════════════════════════════════════
+
+  const cx = program.command("cx").description("学习通课程操作");
+
+  cx.command("courses").description("获取课程列表").action(async () => {
+    const r = await agentPost("/agent/cx/courses", {});
+    const json = program.opts().json;
+    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
+    for (const c of r.courses ?? []) console.log(`  ${c.name} (${c.courseId})`);
+  });
+
+  cx.command("chapters <courseId> <clazzId>").description("获取章节列表").action(async (cid: string, clid: string) => {
+    const r = await agentPost("/agent/cx/chapters", { courseId: cid, clazzId: clid });
+    const json = program.opts().json;
+    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
+    for (const ch of r) console.log(`${ch.completed ? "✅" : "⬜"} ${ch.text?.slice(0, 50)} [${ch.chapterId}]`);
+  });
+
+  cx.command("study <courseId> <clazzId> <chapterId>").description("进入章节学习").action(async (cid: string, clid: string, chid: string) => {
+    const r = await agentPost("/agent/cx/study", { courseId: cid, clazzId: clid, chapterId: chid });
+    output(r, program.opts().json);
+  });
+
+  // ══════════════════════════════════════════
+  // 自动学习状态
+  // ══════════════════════════════════════════
+
+  program.command("status").description("当前学习状态").action(async () => {
+    const r = await agentFetch("/agent/auto-study/status");
+    const json = program.opts().json;
+    if (json) { console.log(JSON.stringify(r, null, 2)); return; }
+    console.log(chalk.cyan("URL:"), r.url?.slice(0, 100));
+    console.log(chalk.cyan("标题:"), r.title);
+    console.log(chalk.cyan("任务:"), r.tasks?.join(", ") || "无");
+    console.log(chalk.cyan("iframe:"), r.iframes?.length || 0);
+  });
+
+  // ══════════════════════════════════════════
+  // 登录
+  // ══════════════════════════════════════════
+
+  const login = program.command("login").description("登录操作");
+
+  login.command("cx-phone").description("学习通手机登录").requiredOption("--phone <phone>").requiredOption("--password <password>").action(async (opts: any) => {
+    output(await agentPost("/agent/login/cx-phone", { phone: opts.phone, password: opts.password }), program.opts().json);
+  });
+
+  // ══════════════════════════════════════════
+  // OCR
+  // ══════════════════════════════════════════
+
+  program.command("ocr <image>").description("OCR 验证码识别 (base64 或文件路径)").action(async (image: string) => {
+    const { readFileSync, existsSync } = await import("node:fs");
+    let b64 = image;
+    if (existsSync(image)) b64 = readFileSync(image).toString("base64");
+    output(await agentPost("/agent/ocr", { image: b64 }), program.opts().json);
+  });
+
+  // ══════════════════════════════════════════
+  // 配置
+  // ══════════════════════════════════════════
+
+  const config = program.command("config").description("ocsjs 配置管理");
+
+  config.command("get").description("读取配置").action(async () => {
+    output(await agentFetch("/agent/config"), program.opts().json);
+  });
+
+  config.command("set <key> <value>").description("修改配置").action(async (key: string, value: string) => {
+    let parsed: any = value;
+    try { parsed = JSON.parse(value); } catch {}
+    output(await agentPost("/agent/config/set", { key, value: parsed }), program.opts().json);
+  });
+
+  config.command("cache").description("查看答案缓存").action(async () => {
+    output(await agentFetch("/agent/config/cache"), program.opts().json);
+  });
+
+  config.command("clear-cache").description("清空答案缓存").action(async () => {
+    const r = await fetch(`${agentBaseUrl}/agent/config/cache`, { method: "DELETE" }).then(r => r.json());
+    output(r, program.opts().json);
+  });
 
   return program;
 }
 
-// 执行 CLI
 const program = createCLI();
 program.parse(process.argv);
