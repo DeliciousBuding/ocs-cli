@@ -67,6 +67,72 @@ export class BrowserController {
     return { browserId: id, pages: pageInfos };
   }
 
+  /**
+   * 连接到 ocs-desktop 管理的浏览器（通过 CDP 协议）
+   * ocs-desktop 需要已启动且暴露了 --remote-debugging-port
+   */
+  async connectToDesktop(cdpPort = 9222): Promise<{ browserId: string; pages: PageInfo[] }> {
+    const cdpUrl = `http://localhost:${cdpPort}`;
+
+    // 先检查 ocs-desktop 是否在运行
+    try {
+      const resp = await fetch(`http://localhost:15319/cdp`);
+      if (resp.ok) {
+        const data = await resp.json() as any;
+        if (data.cdpPort) {
+          // 使用 ocs-desktop 返回的端口
+          return this._connectCDP(`http://127.0.0.1:${data.cdpPort}`);
+        }
+      }
+    } catch {
+      // ocs-desktop 未运行，尝试直接连接 CDP 端口
+    }
+
+    return this._connectCDP(cdpUrl);
+  }
+
+  /**
+   * 直接通过 CDP URL 连接浏览器
+   */
+  async connectToCDP(cdpUrl: string): Promise<{ browserId: string; pages: PageInfo[] }> {
+    return this._connectCDP(cdpUrl);
+  }
+
+  private async _connectCDP(cdpUrl: string): Promise<{ browserId: string; pages: PageInfo[] }> {
+    const id = randomUUID().slice(0, 8);
+
+    let browser;
+    try {
+      browser = await chromium.connectOverCDP(cdpUrl);
+    } catch (e: any) {
+      throw new Error(
+        `无法连接到 CDP 端点 ${cdpUrl}。` +
+        `请确认 ocs-desktop 已启动且暴露了 --remote-debugging-port。\n` +
+        `原始错误: ${e.message}`
+      );
+    }
+
+    const context = browser.contexts()[0];
+    if (!context) {
+      throw new Error("CDP 连接成功但没有找到浏览器上下文");
+    }
+
+    const pages = new Map<number, Page>();
+    context.pages().forEach((p, i) => pages.set(i, p));
+
+    context.on("page", (page) => {
+      const idx = pages.size;
+      pages.set(idx, page);
+    });
+
+    const managed: ManagedBrowser = { id, context, pages, createdAt: Date.now() };
+    this.browsers.set(id, managed);
+    if (!this.defaultBrowserId) this.defaultBrowserId = id;
+
+    const pageInfos = await this.listPages(id);
+    return { browserId: id, pages: pageInfos };
+  }
+
   async close(browserId?: string): Promise<void> {
     const id = browserId ?? this.defaultBrowserId;
     if (!id) throw new Error("No browser running");

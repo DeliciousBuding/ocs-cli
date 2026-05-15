@@ -79,6 +79,55 @@ export function createCLI(): Command {
       }
     });
 
+  // ── 连接 ocs-desktop 浏览器 ──
+  program
+    .command("connect")
+    .description("连接到 ocs-desktop 管理的浏览器（通过 CDP）")
+    .option("--cdp-port <port>", "CDP 端口", "9222")
+    .option("--url <url>", "连接后导航到指定 URL")
+    .option("-p, --port <port>", "API 服务端口", "17800")
+    .option("--host <host>", "监听地址", "127.0.0.1")
+    .option("--auth-token <token>", "认证令牌")
+    .option("-s, --serve", "同时启动 HTTP API 服务", false)
+    .action(async (opts) => {
+      try {
+        console.log(chalk.cyan("正在连接 ocs-desktop 浏览器..."));
+        const result = await controller.connectToDesktop(Number(opts.cdpPort));
+        console.log(chalk.green(`已连接 浏览器 ID: ${result.browserId}`));
+        console.log(chalk.gray(`页面数: ${result.pages.length}`));
+        for (const p of result.pages) {
+          console.log(chalk.gray(`  [${p.index}] ${p.url} — ${p.title}`));
+        }
+
+        if (opts.url) {
+          await controller.navigate(opts.url, result.browserId);
+          console.log(chalk.green(`已导航到: ${opts.url}`));
+        }
+
+        if (opts.serve) {
+          const server = createServer(controller, {
+            port: Number(opts.port),
+            host: opts.host,
+            authToken: opts.authToken,
+          });
+          const port = await server.start();
+          console.log(chalk.green(`API 服务已启动: http://${opts.host}:${port}`));
+          console.log(chalk.gray("按 Ctrl+C 停止（不会关闭 ocs-desktop 的浏览器）"));
+
+          process.on("SIGINT", async () => {
+            console.log(chalk.yellow("\n正在断开连接..."));
+            await server.stop();
+            // 不关闭浏览器，只是断开 CDP 连接
+            process.exit(0);
+          });
+          await new Promise(() => {});
+        }
+      } catch (e: any) {
+        console.error(chalk.red(`连接失败: ${e.message}`));
+        process.exit(1);
+      }
+    });
+
   // ── 启动 API 服务 ──
   program
     .command("serve")

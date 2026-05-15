@@ -51,6 +51,21 @@ export function createServer(controller: BrowserController, config: ServerConfig
     }
   });
 
+  app.post("/browser/connect", async (req, res) => {
+    try {
+      const { cdpPort, cdpUrl } = req.body ?? {};
+      let result;
+      if (cdpUrl) {
+        result = await controller.connectToCDP(cdpUrl);
+      } else {
+        result = await controller.connectToDesktop(cdpPort ?? 9222);
+      }
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/browser/close", async (req, res) => {
     try {
       await controller.close(req.body?.browserId);

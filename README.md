@@ -53,12 +53,18 @@ ocs doctor
 # 检测课程平台
 ocs detect "https://mooc1.chaoxing.com/mycourse"
 
-# 启动浏览器 + API 服务（供 Agent 调用）
+# ── 模式一：独立模式 ──
+# ocs-cli 自己启动浏览器 + API 服务
 ocs serve --port 17800
 
 # 启动浏览器并导航
 ocs launch --url "https://mooc1.chaoxing.com"
 
+# ── 模式二：连接 ocs-desktop ──
+# 连接到 ocs-desktop 已管理的浏览器（需要 ocs-desktop 已启动）
+ocs connect --cdp-port 9222 --serve --port 17800
+
+# ── 通用操作 ──
 # 截图
 ocs screenshot -o page.png
 
@@ -125,6 +131,7 @@ curl -X POST http://127.0.0.1:17800/ocs/answer \
 | 方法 | 端点 | 说明 |
 |------|------|------|
 | POST | `/browser/launch` | 启动浏览器 |
+| POST | `/browser/connect` | 通过 CDP 连接已有浏览器 |
 | POST | `/browser/close` | 关闭浏览器 |
 | GET  | `/browser/list` | 列出运行中的浏览器 |
 
