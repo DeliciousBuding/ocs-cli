@@ -1,42 +1,28 @@
 # OCS-CLI
 
-**AI Agent 浏览器自动化工具** — 复用 ocsjs 的页面识别与操作逻辑，让 AI Agent 能够连接浏览器进行自动化操作。
+**AI Agent 的网课自动化工具箱**
 
-OCS-CLI 为 AI Agent 提供标准化的浏览器操作接口，支持：
-
-- 浏览器生命周期管理（启动、关闭、多实例）
-- 页面感知（截图、DOM 快照、页面状态）
-- 元素操作（点击、填写、选择、按键）
-- **ocsjs 识别逻辑复用**（题目提取、媒体检测、答案匹配）
-- 多课程平台支持（超星、智慧树、智慧职教、职教云、MOOC、雨课堂）
-- HTTP API + MCP 协议双重接口
-
-## 架构设计
+让 AI Agent 能够操控浏览器，自动完成超星学习通、智慧树等平台的课程学习任务。
 
 ```
-AI Agent (Claude / Codex / 自定义)
-    │
-    ▼
-OCS-CLI（Agent 客户端）
-  - 自动发现 ocs-desktop Agent 服务
-  - HTTP API 转发
-  - 工作流编排
-    │
-    ▼ HTTP
-ocs-desktop Agent 服务 (localhost:17900)
-  - 浏览器控制 (Playwright)
-  - iframe 操作
-  - 视频播放控制
-  - 课程导航
-  - 页面分析
-    │
-    ▼ Playwright
-Chrome + ScriptCat + ocsjs（用户脚本自动注入）
+AI Agent ←→ ocs-cli ←HTTP→ ocs-desktop ←Playwright→ Chrome + ocsjs
 ```
 
-ocs-desktop 通过 GUI 管理浏览器生命周期，ocs-cli 只做连接和操作，不启动浏览器。
+## 功能
+
+- 浏览器控制：导航、点击、填写、截图、DOM 快照
+- iframe 操作：递归搜索、题目提取、答案注入、提交
+- 视频控制：播放、暂停、倍速、音量
+- 课程导航：学习通/智慧树课程列表、章节、进入学习页
+- 平台识别：自动检测 6 大课程平台
+- 认证安全：令牌认证、CORS 限制、请求超时
 
 ## 快速开始
+
+### 前置条件
+
+- Node.js >= 20
+- [ocs-desktop](https://github.com/ocsjs/ocs-desktop) 已启动，浏览器已打开
 
 ### 安装
 
@@ -45,308 +31,121 @@ git clone https://github.com/yourname/ocs-cli.git
 cd ocs-cli
 npm install
 npm run build
-npm link  # 全局可用 ocs 命令
+npm link  # 全局安装 ocs 命令
 ```
 
-### 基本使用
+### 使用
 
 ```bash
+# 连接到 ocs-desktop
+ocs connect
+
 # 检查环境
 ocs doctor
 
-# 检测课程平台
-ocs detect "https://mooc1.chaoxing.com/mycourse"
+# 查看课程
+ocs course list --json
 
-# ── 模式一：独立模式 ──
-# ocs-cli 自己启动浏览器 + API 服务
-ocs serve --port 17800
+# 进入章节
+ocs course open <courseId> <clazzId> <chapterId>
 
-# 启动浏览器并导航
-ocs launch --url "https://mooc1.chaoxing.com"
+# 检测视频
+ocs video status
 
-# ── 模式二：连接 ocs-desktop ──
-# 连接到 ocs-desktop 已管理的浏览器（需要 ocs-desktop 已启动）
-ocs connect --cdp-port 9222 --serve --port 17800
-
-# ── 通用操作 ──
-# 截图
-ocs screenshot -o page.png
-
-# 分析页面（提取题目、媒体等）
-ocs analyze
-```
-
-### 供 Agent 使用（HTTP API）
-
-启动服务后，Agent 通过 HTTP 请求控制浏览器：
-
-```bash
-# 启动服务
-ocs serve --port 17800
-
-# 健康检查
-curl http://127.0.0.1:17800/health
-
-# 导航到页面
-curl -X POST http://127.0.0.1:17800/page/navigate \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://mooc1.chaoxing.com/mycourse"}'
-
-# 获取页面截图（base64）
-curl http://127.0.0.1:17800/page/screenshot
-
-# 获取 DOM 快照
-curl http://127.0.0.1:17800/page/snapshot
-
-# 点击元素
-curl -X POST http://127.0.0.1:17800/action/click \
-  -H "Content-Type: application/json" \
-  -d '{"selector": "#loginBtn"}'
-
-# 填写表单
-curl -X POST http://127.0.0.1:17800/action/fill \
-  -H "Content-Type: application/json" \
-  -d '{"selector": "#username", "value": "student01"}'
-
-# 分析页面（ocsjs 识别逻辑）
-curl http://127.0.0.1:17800/ocs/analyze
+# 播放视频（2倍速）
+ocs video autoplay -r 2
 
 # 提取题目
-curl http://127.0.0.1:17800/ocs/questions
+ocs iframe questions 0 --json
 
-# 检测媒体
-curl http://127.0.0.1:17800/ocs/media
-
-# 控制媒体播放
-curl -X POST http://127.0.0.1:17800/ocs/media/control \
-  -H "Content-Type: application/json" \
-  -d '{"action": "setRate", "value": 2}'
-
-# 选择答案（相似度匹配）
-curl -X POST http://127.0.0.1:17800/ocs/answer \
-  -H "Content-Type: application/json" \
-  -d '{"questionText": "中国的首都是", "answerText": "北京"}'
+# 答题
+ocs iframe answer 0 "题目文本" "答案文本"
+ocs iframe submit 0
 ```
 
-## API 端点一览
+## 命令速查
 
-### 浏览器管理
+```
+ocs doctor                              # 环境检查
+ocs connect                             # 连接 ocs-desktop
+ocs detect <url>                        # 检测课程平台
 
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| POST | `/browser/launch` | 启动浏览器 |
-| POST | `/browser/connect` | 通过 CDP 连接已有浏览器 |
-| POST | `/browser/close` | 关闭浏览器 |
-| GET  | `/browser/list` | 列出运行中的浏览器 |
+ocs page list / open / screenshot / snapshot / eval / content / url
+ocs act click / fill / press / hover / wait
+ocs iframe list / eval / media / questions / answer / submit / batch
+ocs video status / play / pause / rate / autoplay
+ocs course list / chapters / open / remaining
+ocs zhs courses / video / login-status / login-phone / login-school
+ocs config get / set / cache / clear-cache
+ocs ocr <image>                         # 验证码识别
+ocs request <method> <path>             # 原始 API 请求
+```
 
-### 页面操作
+所有命令支持 `--json` 输出。
 
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| GET  | `/pages` | 列出所有页面 |
-| POST | `/page/navigate` | 导航到 URL |
-| POST | `/page/new` | 新建页面 |
-| POST | `/page/close` | 关闭页面 |
-| GET  | `/page/state` | 获取页面状态 |
-| GET  | `/page/content` | 获取页面 HTML |
+## Agent 集成
 
-### 感知接口
+### HTTP API
 
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| GET  | `/page/screenshot` | 截图（返回 base64） |
-| GET  | `/page/snapshot` | DOM 快照 |
+ocs-cli 通过 HTTP API 与 ocs-desktop 的 Agent 服务通信（默认端口 17900）。
 
-### 操作接口
+```bash
+# 启动 API 代理服务
+ocs connect --serve --port 17800
 
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| POST | `/action/click` | 点击元素 |
-| POST | `/action/fill` | 填写输入框 |
-| POST | `/action/select` | 选择下拉框 |
-| POST | `/action/press` | 按键 |
-| POST | `/action/type` | 逐字输入 |
-| POST | `/action/hover` | 悬停 |
-| POST | `/action/wait` | 等待元素出现 |
-| POST | `/eval` | 执行 JavaScript |
+# Agent 通过 ocs-cli 的 API 操作浏览器
+curl http://127.0.0.1:17800/agent/health
+```
 
-### OCS 识别接口
-
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| GET  | `/ocs/analyze` | 分析页面（题目+媒体+平台） |
-| GET  | `/ocs/questions` | 提取所有题目 |
-| GET  | `/ocs/media` | 检测媒体元素 |
-| POST | `/ocs/media/control` | 控制播放 |
-| POST | `/ocs/answer` | 选择答案 |
-
-### 平台接口
-
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| GET  | `/platform/detect?url=` | 检测平台 |
-| GET  | `/platform/list` | 列出所有平台 |
-
-## MCP 集成
-
-OCS-CLI 支持 MCP (Model Context Protocol)，可直接被 Claude Code 等 Agent 调用。
-
-在 Agent 的 MCP 配置中添加：
+### MCP (可选)
 
 ```json
 {
   "mcpServers": {
     "ocs": {
       "command": "node",
-      "args": ["D:/Code/Projects/ocs-cli/dist/mcp/entry.js"],
-      "transportType": "stdio"
+      "args": ["path/to/ocs-cli/dist/mcp/entry.js"]
     }
   }
 }
 ```
 
-### MCP 工具列表
+### Skill
 
-| 工具名 | 说明 |
-|--------|------|
-| `browser_launch` | 启动浏览器 |
-| `browser_close` | 关闭浏览器 |
-| `browser_list` | 列出浏览器 |
-| `page_navigate` | 导航 |
-| `page_screenshot` | 截图 |
-| `page_snapshot` | DOM 快照 |
-| `page_content` | 获取 HTML |
-| `action_click` | 点击 |
-| `action_fill` | 填写 |
-| `action_select` | 选择 |
-| `action_press` | 按键 |
-| `action_wait` | 等待元素 |
-| `evaluate` | 执行 JS |
-| `ocs_analyze` | 分析页面 |
-| `ocs_questions` | 提取题目 |
-| `ocs_media` | 检测媒体 |
-| `ocs_media_control` | 控制播放 |
-| `ocs_select_answer` | 选择答案 |
-| `platform_detect` | 检测平台 |
+`skill/SKILL.md` 包含完整的使用手册，任何 AI Agent 都能读取使用。
 
-## Agent 工作流示例
-
-### 典型的 Agent 操作流程
+## 架构
 
 ```
-1. browser_launch → 启动浏览器
-2. page_navigate  → 导航到课程页面
-3. ocs_analyze    → 分析页面，获取题目和媒体信息
-4. page_screenshot → 截图让 Agent "看到" 页面
-5. Agent 根据题目信息决定答案
-6. ocs_select_answer → 选择答案
-7. ocs_media_control → 控制视频播放
-8. page_navigate  → 进入下一章节
-```
-
-### 与 Claude Code 集成
-
-```bash
-# Claude Code 可以通过 MCP 工具直接调用：
-# 1. 启动浏览器 → browser_launch
-# 2. 导航 → page_navigate("https://mooc1.chaoxing.com/mycourse")
-# 3. 分析 → ocs_analyze()
-# 4. 截图 → page_screenshot() → Agent 识别页面内容
-# 5. 操作 → action_click / action_fill / ocs_select_answer
-# 6. 控制 → ocs_media_control("setRate", 2)
+ocs-cli/
+├── src/
+│   ├── browser/controller.ts    # 浏览器控制器（独立/Agent 双模式）
+│   ├── server/index.ts          # HTTP API 代理服务
+│   ├── platform/
+│   │   ├── detector.ts          # 平台检测器（6平台）
+│   │   └── ocs-bridge.ts        # ocsjs 逻辑桥接
+│   ├── cli/index.ts             # CLI 命令
+│   ├── mcp/                     # MCP 服务器（可选）
+│   └── types.ts                 # 类型定义
+├── skill/SKILL.md               # Agent 使用手册
+└── reference/                   # ocsjs + ocs-desktop 源码（gitignore）
 ```
 
 ## 支持的平台
 
 | 平台 | ID | 域名 |
 |------|----|------|
-| 超星学习通 | `cx` | chaoxing.com, edu.cn, org.cn, xueyinonline.com |
-| 智慧树 | `zhs` | zhihuishu.com, studywisdom.com |
-| 智慧职教 | `icve` | icve.com.cn, courshare.cn, webtrn.cn |
-| 职教云 | `zjy` | zjy2.icve.com.cn, zyk.icve.com.cn |
-| 中国大学MOOC | `icourse` | icourse163.org |
-| 雨课堂 | `yuketang` | yuketang.cn |
+| 超星学习通 | cx | chaoxing.com, edu.cn, xueyinonline.com |
+| 智慧树 | zhs | zhihuishu.com, studywisdom.com |
+| 智慧职教 | icve | icve.com.cn, courshare.cn |
+| 职教云 | zjy | zjy2.icve.com.cn |
+| 中国大学MOOC | icourse | icourse163.org |
+| 雨课堂 | yuketang | yuketang.cn |
 
-## 配置
+## 相关项目
 
-### 认证
-
-API 服务支持 Bearer Token 认证：
-
-```bash
-ocs serve --auth-token "your-secret-token"
-
-# 请求时带上 Token
-curl -H "Authorization: Bearer your-secret-token" http://127.0.0.1:17800/health
-```
-
-### 浏览器路径
-
-如果自动检测不到 Chrome/Edge，手动指定：
-
-```bash
-ocs launch --executable-path "C:\Program Files\Google\Chrome\Application\chrome.exe"
-ocs serve --executable-path "/usr/bin/google-chrome"
-```
-
-### 代理
-
-```bash
-ocs launch --proxy "http://127.0.0.1:7890"
-```
-
-## 开发
-
-```bash
-# 安装依赖
-npm install
-
-# 开发模式运行
-npm run dev -- doctor
-
-# 构建
-npm run build
-
-# 类型检查
-npm run typecheck
-
-# 测试
-npm test
-```
-
-## 项目结构
-
-```
-ocs-cli/
-├── src/
-│   ├── browser/
-│   │   └── controller.ts    # 浏览器控制器（Playwright-core）
-│   ├── server/
-│   │   └── index.ts         # HTTP API 服务（Express）
-│   ├── platform/
-│   │   ├── detector.ts      # 平台检测器
-│   │   └── ocs-bridge.ts    # ocsjs 识别逻辑桥接
-│   ├── cli/
-│   │   └── index.ts         # CLI 命令（Commander）
-│   ├── mcp/
-│   │   ├── tools.ts         # MCP 工具定义
-│   │   ├── server.ts        # MCP 服务器
-│   │   └── entry.ts         # MCP 入口文件
-│   ├── types.ts             # 类型定义
-│   └── index.ts             # 库导出
-├── reference/               # 参考仓库（ocsjs, ocs-desktop）
-├── package.json
-├── tsconfig.json
-└── tsup.config.ts
-```
-
-## 技术栈
-
-- **TypeScript** — 类型安全
-- **Playwright-core** — 浏览器控制（不捆绑浏览器，使用系统 Chrome/Edge）
-- **Express** — HTTP API 服务
-- **Commander** — CLI 框架
-- **chalk** — 终端着色
+- [ocsjs](https://github.com/ocsjs/ocsjs) — 网课自动化用户脚本
+- [ocs-desktop](https://github.com/ocsjs/ocs-desktop) — 网课自动化桌面客户端
 
 ## 许可证
 
