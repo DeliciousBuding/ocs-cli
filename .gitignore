@@ -8,3 +8,4 @@ reference/
 *.png
 test-*.mjs
 ROADMAP.md
+*.json
