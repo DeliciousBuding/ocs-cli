@@ -356,6 +356,91 @@ export class BrowserController {
     return this.browsers.get(browserId ?? this.defaultBrowserId ?? "");
   }
 
+  // ── iframe 操作 ──
+
+  async listIframes(browserId?: string, pageIndex?: number): Promise<any[]> {
+    const browser = this.resolveBrowser(browserId);
+    if (browser.agentUrl) {
+      return await this.agentFetch(browser, `/agent/iframes?pageIndex=${pageIndex ?? 0}`);
+    }
+    const page = browser.pages!.get(pageIndex ?? 0)!;
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    return await page.evaluate(new Function(
+      'var r=[];var f=document.querySelectorAll("iframe");' +
+      'for(var i=0;i<f.length;i++){var s="";try{s=f[i].src||""}catch(e){}' +
+      'r.push({index:i,src:s.slice(0,200),id:f[i].id||"",name:f[i].name||"",accessible:false});' +
+      'try{f[i].contentDocument;r[r.length-1].accessible=true}catch(e){}}return r;'
+    ) as () => any[]);
+  }
+
+  async iframeEval(expression: string, iframeIndex = 0, browserId?: string, pageIndex?: number): Promise<unknown> {
+    const browser = this.resolveBrowser(browserId);
+    if (browser.agentUrl) {
+      const data = await this.agentFetch(browser, "/agent/iframe-eval", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expression, iframeIndex, pageIndex }),
+      });
+      return data.result;
+    }
+    const page = browser.pages!.get(pageIndex ?? 0)!;
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    return await page.evaluate(
+      new Function(
+        'args',
+        'var iframe=document.querySelectorAll("iframe")[args.iframeIndex];' +
+        'if(!iframe)throw new Error("iframe 不存在");' +
+        'var doc=iframe.contentDocument;if(!doc)throw new Error("跨域");' +
+        'var fn=new Function("document","window","return("+args.expression+")");' +
+        'return fn(doc,iframe.contentWindow);'
+      ) as (args: { iframeIndex: number; expression: string }) => unknown,
+      { iframeIndex, expression }
+    );
+  }
+
+  async iframeMedia(iframeIndex = 0, browserId?: string, pageIndex?: number): Promise<any[]> {
+    const browser = this.resolveBrowser(browserId);
+    if (browser.agentUrl) {
+      return await this.agentFetch(browser, "/agent/iframe-media", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ iframeIndex, pageIndex }),
+      });
+    }
+    return [];
+  }
+
+  async iframeMediaControl(action: string, value?: number, iframeIndex = 0, browserId?: string, pageIndex?: number): Promise<any> {
+    const browser = this.resolveBrowser(browserId);
+    if (browser.agentUrl) {
+      return await this.agentFetch(browser, "/agent/iframe-media-control", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, value, iframeIndex, pageIndex }),
+      });
+    }
+    return { success: false, message: "仅支持 Agent 模式" };
+  }
+
+  async iframeQuestions(iframeIndex = 0, browserId?: string, pageIndex?: number): Promise<any[]> {
+    const browser = this.resolveBrowser(browserId);
+    if (browser.agentUrl) {
+      return await this.agentFetch(browser, "/agent/iframe-questions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ iframeIndex, pageIndex }),
+      });
+    }
+    return [];
+  }
+
+  async iframeAnswer(questionText: string, answerText: string, matchMode = "similar", iframeIndex = 0, browserId?: string, pageIndex?: number): Promise<any> {
+    const browser = this.resolveBrowser(browserId);
+    if (browser.agentUrl) {
+      return await this.agentFetch(browser, "/agent/iframe-answer", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questionText, answerText, matchMode, iframeIndex, pageIndex }),
+      });
+    }
+    return { success: false, message: "仅支持 Agent 模式" };
+  }
+
   private findChrome(): string | null {
     const candidates = [
       "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",

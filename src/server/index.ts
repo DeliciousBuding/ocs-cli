@@ -326,6 +326,69 @@ export function createServer(controller: BrowserController, config: ServerConfig
     }
   });
 
+  // --- iframe 操作 ---
+  app.get("/iframe/list", async (req, res) => {
+    try {
+      const result = await controller.listIframes(
+        req.query.browserId as string,
+        req.query.pageIndex ? Number(req.query.pageIndex) : undefined
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/iframe/eval", async (req, res) => {
+    try {
+      const { expression, iframeIndex, browserId, pageIndex } = req.body;
+      const result = await controller.iframeEval(expression, iframeIndex, browserId, pageIndex);
+      res.json({ result });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/iframe/media", async (req, res) => {
+    try {
+      const { iframeIndex, browserId, pageIndex } = req.body;
+      const result = await controller.iframeMedia(iframeIndex, browserId, pageIndex);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/iframe/media/control", async (req, res) => {
+    try {
+      const { action, value, iframeIndex, browserId, pageIndex } = req.body;
+      const result = await controller.iframeMediaControl(action, value, iframeIndex, browserId, pageIndex);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/iframe/questions", async (req, res) => {
+    try {
+      const { iframeIndex, browserId, pageIndex } = req.body;
+      const result = await controller.iframeQuestions(iframeIndex, browserId, pageIndex);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/iframe/answer", async (req, res) => {
+    try {
+      const { questionText, answerText, matchMode, iframeIndex, browserId, pageIndex } = req.body;
+      const result = await controller.iframeAnswer(questionText, answerText, matchMode, iframeIndex, browserId, pageIndex);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // --- Platform info ---
   app.get("/platform/detect", (req, res) => {
     const url = req.query.url as string;
