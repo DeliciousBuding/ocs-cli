@@ -9,7 +9,7 @@
     "ocs": "./dist/cli/index.js"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/add-shebang.js",
     "dev": "tsx src/cli/index.ts",
     "start": "node dist/cli/index.js",
     "typecheck": "tsc --noEmit",

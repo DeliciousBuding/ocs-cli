@@ -271,29 +271,31 @@ export function createCLI(): Command {
 
   const video = program.command("video").description("视频控制");
 
-  video.command("status <index>").description("视频状态").action(async (idx: string) => {
+  video.command("status [index]").description("视频状态 (-1=搜索全部)").option("-p, --page <pageIndex>", "页面索引", "0").action(async (idx?: string, opts?: any) => {
     if (!(await ensureConnected())) return;
-    out(await post("/agent/video/status", { iframeIndex: Number(idx) }));
+    out(await post("/agent/video/status", { iframeIndex: idx ? Number(idx) : -1, pageIndex: Number(opts?.page || 0) }));
   });
 
-  video.command("play <index>").description("播放").action(async (idx: string) => {
+  video.command("play [index]").description("播放").option("-p, --page <pageIndex>", "页面索引", "0").action(async (idx?: string, opts?: any) => {
     if (!(await ensureConnected())) return;
-    out(await post("/agent/video/play", { iframeIndex: Number(idx) }));
+    out(await post("/agent/video/play", { iframeIndex: idx ? Number(idx) : -1, pageIndex: Number(opts?.page || 0) }));
   });
 
-  video.command("pause <index>").description("暂停").action(async (idx: string) => {
+  video.command("pause [index]").description("暂停").option("-p, --page <pageIndex>", "页面索引", "0").action(async (idx?: string, opts?: any) => {
     if (!(await ensureConnected())) return;
-    out(await post("/agent/video/pause", { iframeIndex: Number(idx) }));
+    out(await post("/agent/video/pause", { iframeIndex: idx ? Number(idx) : -1, pageIndex: Number(opts?.page || 0) }));
   });
 
-  video.command("rate <index> <rate>").description("设置倍速").action(async (idx: string, rate: string) => {
+  video.command("rate [index] <rate>").description("设置倍速").option("-p, --page <pageIndex>", "页面索引", "0").action(async (idxOrRate: string, rate?: string, opts?: any) => {
     if (!(await ensureConnected())) return;
-    out(await post("/agent/video/setRate", { iframeIndex: Number(idx), rate: Number(rate) }));
+    const r = rate ? Number(rate) : Number(idxOrRate);
+    const i = rate ? Number(idxOrRate) : -1;
+    out(await post("/agent/video/setRate", { iframeIndex: i, rate: r, pageIndex: Number(opts?.page || 0) }));
   });
 
-  video.command("autoplay <index>").description("自动播放").option("-r, --rate <rate>", "倍速", "1").option("-v, --volume <vol>", "音量", "1").action(async (idx: string, opts: any) => {
+  video.command("autoplay [index]").description("自动播放").option("-p, --page <pageIndex>", "页面索引", "0").option("-r, --rate <rate>", "倍速", "1").option("-v, --volume <vol>", "音量", "1").action(async (idx?: string, opts?: any) => {
     if (!(await ensureConnected())) return;
-    out(await post("/agent/video/autoPlay", { iframeIndex: Number(idx), rate: Number(opts.rate), volume: Number(opts.volume) }));
+    out(await post("/agent/video/autoPlay", { iframeIndex: idx ? Number(idx) : -1, rate: Number(opts?.rate || 1), volume: Number(opts?.volume || 1), pageIndex: Number(opts?.page || 0) }));
   });
 
   // ══════════════════════════════════════════
