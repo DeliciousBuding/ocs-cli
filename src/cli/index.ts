@@ -1,8 +1,11 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { PlatformDetector } from "../platform/detector.js";
+import { AnswerService } from "../answer/service.js";
+import { registerAnswerCommands } from "../answer/commands.js";
 
 const detector = new PlatformDetector();
+const answerService = new AnswerService();
 
 /** Agent HTTP 服务基础 URL */
 let agentBaseUrl = "http://127.0.0.1:17900";
@@ -441,6 +444,9 @@ export function createCLI(): Command {
       }
       out(await api(path.startsWith("/") ? path : `/${path}`, options));
     });
+
+  // ── 答案服务 ──
+  registerAnswerCommands(program, answerService, ensureConnected, out);
 
   return program;
 }
