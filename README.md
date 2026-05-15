@@ -14,23 +14,27 @@ OCS-CLI 为 AI Agent 提供标准化的浏览器操作接口，支持：
 ## 架构设计
 
 ```
-┌─────────────────────────────────────────────┐
-│                AI Agent                      │
-│         (Claude / Codex / 自定义)             │
-├──────────────┬──────────────────────────────┤
-│   MCP 协议    │       HTTP REST API          │
-│  (stdio)     │     http://127.0.0.1:17800   │
-├──────────────┴──────────────────────────────┤
-│              OCS-CLI 核心层                   │
-│  ┌──────────┐ ┌──────────┐ ┌──────────────┐ │
-│  │ 浏览器控制 │ │ 平台检测  │ │ ocsjs 识别桥 │ │
-│  │Playwright │ │ Detector │ │  OCSBridge   │ │
-│  └──────────┘ └──────────┘ └──────────────┘ │
-├─────────────────────────────────────────────┤
-│          Chrome / Edge 浏览器                │
-│        (launchPersistentContext)             │
-└─────────────────────────────────────────────┘
+AI Agent (Claude / Codex / 自定义)
+    │
+    ▼
+OCS-CLI（Agent 客户端）
+  - 自动发现 ocs-desktop Agent 服务
+  - HTTP API 转发
+  - 工作流编排
+    │
+    ▼ HTTP
+ocs-desktop Agent 服务 (localhost:17900)
+  - 浏览器控制 (Playwright)
+  - iframe 操作
+  - 视频播放控制
+  - 课程导航
+  - 页面分析
+    │
+    ▼ Playwright
+Chrome + ScriptCat + ocsjs（用户脚本自动注入）
 ```
+
+ocs-desktop 通过 GUI 管理浏览器生命周期，ocs-cli 只做连接和操作，不启动浏览器。
 
 ## 快速开始
 
