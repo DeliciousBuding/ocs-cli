@@ -31,6 +31,21 @@ export function createServer(controller: BrowserController, config: ServerConfig
     res.json({ status: "ok", browsers: controller.listBrowsers().length });
   });
 
+  app.get("/discover", async (_req, res) => {
+    // 发现 ocs-desktop 实例
+    try {
+      const resp = await fetch("http://127.0.0.1:15319/agent");
+      if (resp.ok) {
+        const info = await resp.json() as any;
+        res.json({ found: true, ...info });
+      } else {
+        res.json({ found: false, message: "ocs-desktop 主服务未响应" });
+      }
+    } catch {
+      res.json({ found: false, message: "ocs-desktop 未运行（端口 15319 不可达）" });
+    }
+  });
+
   app.get("/doctor", (_req, res) => {
     const browsers = controller.listBrowsers();
     res.json({

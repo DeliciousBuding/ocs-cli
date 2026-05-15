@@ -69,15 +69,33 @@ export class BrowserController {
   }
 
   // ── Agent 模式：连接 ocs-desktop ──
-  async connectToDesktop(agentPort = 17900): Promise<{ browserId: string; pages: PageInfo[] }> {
-    const agentUrl = `http://127.0.0.1:${agentPort}`;
+  async connectToDesktop(agentPort?: number): Promise<{ browserId: string; pages: PageInfo[] }> {
+    let agentUrl: string;
+
+    if (agentPort) {
+      agentUrl = `http://127.0.0.1:${agentPort}`;
+    } else {
+      // 自动发现：先查 ocs-desktop 主服务（15319）获取 Agent 端口
+      try {
+        const resp = await fetch("http://127.0.0.1:15319/agent");
+        if (resp.ok) {
+          const info = await resp.json() as any;
+          agentUrl = info.agentUrl || `http://127.0.0.1:${info.agentPort || 17900}`;
+        } else {
+          agentUrl = "http://127.0.0.1:17900";
+        }
+      } catch {
+        agentUrl = "http://127.0.0.1:17900";
+      }
+    }
 
     // 验证 Agent 服务是否可达
     const health = await this.agentFetch({ agentUrl } as ManagedBrowser, "/agent/health").catch(() => null);
     if (!health || health.status !== "ok") {
       throw new Error(
-        `无法连接 ocs-desktop Agent 服务 (端口 ${agentPort})。\n` +
-        `请确认 ocs-desktop 已启动且浏览器已打开。`
+        `无法连接 ocs-desktop Agent 服务 (${agentUrl})。\n` +
+        `请确认 ocs-desktop 已启动且浏览器已打开。\n` +
+        `提示: 在 ocs-desktop 中启动浏览器后，Agent 服务自动可用。`
       );
     }
 
