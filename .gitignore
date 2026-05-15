@@ -5,3 +5,5 @@ dist/
 .env.local
 .ocs-cli/
 reference/
+*.png
+test-*.mjs
