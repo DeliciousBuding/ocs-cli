@@ -9,3 +9,4 @@ reference/
 test-*.mjs
 ROADMAP.md
 *.tmp.json
+ocs.user.js
